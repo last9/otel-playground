@@ -1,0 +1,48 @@
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+      - job_name: 'cadvisor'
+        static_configs:
+          - targets: ['cadvisor:8080']
+        metric_relabel_configs:
+          - source_labels: [id]
+            regex: '/docker/(.{12}).*'
+            target_label: short_id
+            replacement: '$$1'
+          - source_labels: [short_id]
+            regex: 'buildx|buildkit'
+            action: drop
+  otlp:
+    protocols:
+      grpc:
+      http:
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+
+exporters:
+  otlp:
+    endpoint: "<otlp endpoint>"
+    headers:
+      "Authorization": "Basic <HEADER>"
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 100000
+  resourcedetection/docker:
+    detectors: ["env", "docker"]
+    timeout: 2s
+    override: false
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [batch, resourcedetection/docker]
+      exporters: [otlp]
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection/docker, batch]
+      exporters: [otlp]

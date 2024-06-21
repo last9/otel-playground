@@ -1,0 +1,114 @@
+services:
+
+  load-generator:
+    image: oogway/load-generator:1.0.4
+    container_name: load-generator
+    ports:
+      - "8089:8089"
+    command: -f /app/locustfile.py --host=http://file-api:8080 --headless -u 1 -r 1
+    depends_on:
+      - file-api
+      - otel-collector
+      - email-service
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    hostname: cadvisor
+    privileged: true
+    ports:
+    - 8081:8080
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:rw
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+    - redis
+
+  web:
+    container_name: frontend-service
+    image: oogway/frontend-service:1.0.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      - otel-collector
+      - file-api
+
+  file-api:
+    image: oogway/file-upload-service:1.0.0
+    container_name: file-api
+    ports:
+      - "8080:8080"
+    depends_on:
+      - otel-collector
+      - redis
+      - email-service
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - EMAIL_SERVICE_ENDPOINT=http://email-service:6000
+
+  email-service:
+    image: oogway/email-service:1.0.1
+    container_name: email-service
+    ports:
+      - "6000:6000"
+    environment:
+      - OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces
+
+  redis-file-worker:
+    image: oogway/file-worker:1.0.1
+    container_name: redis-file-worker
+    depends_on:
+      - redis
+      - db
+      - otel-collector
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=passpass
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=jobs
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+
+  db:
+    container_name: postgres-db
+    image: postgres:13
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: passpass
+      POSTGRES_DB: jobs
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: [ "--config=/etc/otelcol-config.yml"]
+    volumes:
+      - ./otelcol-config.yml:/etc/otelcol-config.yml
+      - /var/run/docker.sock:/var/run/docker.sock # only needed for "resourcedetection/docker"
+
+    ports:
+      - "4317:4317"          # OTLP over gRPC receiver
+      - "4318:4318"          # OTLP over HTTP receiver
+      - "9464"               # Prometheus exporter
+      - "8888"               # metrics endpoint
+
+  redis:
+    container_name: redis
+    image: redis:latest
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
