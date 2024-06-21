@@ -5,6 +5,7 @@
 ## Pre-requisites
 
 - Docker
+- docker-compose
 - Get Authorization Token and OTLP Endpoint for your Last9 account.
 - Update `otelcol-config.yaml` with the OTLP endpoint and Authorization header.
 - Run following command
